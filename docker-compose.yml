@@ -1,0 +1,20 @@
+services:
+  kiosk:
+    build: .
+    image: kawasaki-bus-kiosk
+    container_name: kawasaki-bus-kiosk
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Base URL of the Kawasaki GTFS API (required for /api/stops and /api/departures).
+      # See https://github.com/tunatuna1733/kawasaki-gtfs-api
+      GTFS_API_BASE: ${GTFS_API_BASE:?set GTFS_API_BASE in .env or your environment}
+      PORT: 3000
+      CONFIG_PATH: /data/config.json
+    volumes:
+      # Persist the dashboard-written config across restarts and image rebuilds.
+      - kiosk-config:/data
+
+volumes:
+  kiosk-config:

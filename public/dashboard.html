@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>バス案内 設定</title>
+    <style>
+      :root {
+        --bg: #f4f6fb;
+        --card: #ffffff;
+        --line: #dfe4ee;
+        --text: #1b2340;
+        --muted: #6b7590;
+        --accent: #2563eb;
+        --danger: #dc2626;
+        --ok: #16a34a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+        line-height: 1.5;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 20px 16px 80px; }
+      h1 { font-size: 1.5rem; margin: 0 0 4px; }
+      .sub { color: var(--muted); margin: 0 0 20px; font-size: 0.9rem; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .card h2 { font-size: 1rem; margin: 0 0 12px; }
+      label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+      input, select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 1rem;
+        background: #fff;
+        color: var(--text);
+      }
+      input:focus, select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+      .route-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; position: relative; }
+      .route-row .full { grid-column: 1 / -1; }
+      .route-row + .route-row { margin-top: 8px; }
+      .route-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+      .route-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+      .route-card .head strong { font-size: 0.85rem; color: var(--muted); }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      button {
+        font-size: 0.95rem;
+        font-weight: 600;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        padding: 10px 14px;
+        background: #fff;
+        color: var(--text);
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.link { border: none; background: none; color: var(--danger); padding: 4px; }
+      button.add { width: 100%; border-style: dashed; color: var(--accent); }
+      .actions { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line); padding: 12px 16px; }
+      .actions .inner { max-width: 720px; margin: 0 auto; display: flex; gap: 12px; align-items: center; }
+      .actions .inner button.primary { flex: 1; }
+      #status { font-size: 0.85rem; }
+      #status.ok { color: var(--ok); }
+      #status.err { color: var(--danger); }
+      .links a { color: var(--accent); text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>バス案内 設定</h1>
+      <p class="sub">キオスク表示（<span class="links"><a href="/" target="_blank">/</a></span>）に表示する路線を設定します。</p>
+
+      <div class="card">
+        <h2>路線</h2>
+        <div id="routes"></div>
+        <button type="button" class="add" id="addRoute">＋ 路線を追加</button>
+      </div>
+
+      <div class="card">
+        <h2>表示設定</h2>
+        <div class="grid2">
+          <div>
+            <label for="refresh">更新間隔（秒）</label>
+            <input id="refresh" type="number" min="5" max="3600" step="1" value="10" />
+          </div>
+          <div>
+            <label for="maxDep">路線ごとの表示件数</label>
+            <input id="maxDep" type="number" min="1" max="10" step="1" value="3" />
+          </div>
+        </div>
+      </div>
+
+      <datalist id="stops"></datalist>
+    </div>
+
+    <div class="actions">
+      <div class="inner">
+        <button type="button" class="primary" id="save">保存</button>
+        <span id="status"></span>
+      </div>
+    </div>
+
+    <template id="routeTpl">
+      <div class="route-card">
+        <div class="head">
+          <strong></strong>
+          <button type="button" class="link remove">削除</button>
+        </div>
+        <div class="route-row">
+          <div>
+            <label>出発停</label>
+            <input class="from" list="stops" placeholder="出発する停留所" autocomplete="off" />
+          </div>
+          <div>
+            <label>行き先</label>
+            <input class="to" list="stops" placeholder="目的の停留所" autocomplete="off" />
+          </div>
+          <div class="full">
+            <label>表示名（任意）</label>
+            <input class="label" placeholder="未入力なら路線名を自動表示" autocomplete="off" />
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script>
+      const el = (id) => document.getElementById(id)
+      const routesEl = el('routes')
+
+      function addRoute(route = {}) {
+        const node = el('routeTpl').content.firstElementChild.cloneNode(true)
+        node.querySelector('.from').value = route.from ?? ''
+        node.querySelector('.to').value = route.to ?? ''
+        node.querySelector('.label').value = route.label ?? ''
+        node.querySelector('.remove').addEventListener('click', () => {
+          node.remove()
+          renumber()
+        })
+        routesEl.appendChild(node)
+        renumber()
+      }
+
+      function renumber() {
+        routesEl.querySelectorAll('.route-card').forEach((c, i) => {
+          c.querySelector('.head strong').textContent = '路線 ' + (i + 1)
+        })
+      }
+
+      function collect() {
+        const routes = []
+        routesEl.querySelectorAll('.route-card').forEach((c) => {
+          const from = c.querySelector('.from').value.trim()
+          const to = c.querySelector('.to').value.trim()
+          const label = c.querySelector('.label').value.trim()
+          if (from && to) routes.push(label ? { from, to, label } : { from, to })
+        })
+        return {
+          routes,
+          refreshSeconds: Number(el('refresh').value) || 10,
+          maxDepartures: Number(el('maxDep').value) || 3,
+        }
+      }
+
+      function setStatus(msg, kind) {
+        const s = el('status')
+        s.textContent = msg
+        s.className = kind || ''
+        if (kind === 'ok') setTimeout(() => (s.textContent = ''), 3000)
+      }
+
+      async function loadStops() {
+        try {
+          const res = await fetch('/api/stops')
+          if (!res.ok) throw new Error('HTTP ' + res.status)
+          const stops = await res.json()
+          el('stops').innerHTML = stops
+            .map((s) => '<option value="' + s.name.replace(/"/g, '&quot;') + '">' + (s.hiragana || '') + '</option>')
+            .join('')
+        } catch (e) {
+          setStatus('停留所リストの取得に失敗しました', 'err')
+        }
+      }
+
+      async function loadConfig() {
+        try {
+          const res = await fetch('/api/config')
+          const cfg = await res.json()
+          el('refresh').value = cfg.refreshSeconds ?? 10
+          el('maxDep').value = cfg.maxDepartures ?? 3
+          routesEl.innerHTML = ''
+          ;(cfg.routes && cfg.routes.length ? cfg.routes : [{}]).forEach(addRoute)
+        } catch (e) {
+          addRoute()
+        }
+      }
+
+      async function save() {
+        const cfg = collect()
+        if (cfg.routes.length === 0) {
+          setStatus('出発停と行き先を入力してください', 'err')
+          return
+        }
+        setStatus('保存中…')
+        try {
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(cfg),
+          })
+          if (!res.ok) throw new Error('HTTP ' + res.status)
+          setStatus('保存しました ✓', 'ok')
+        } catch (e) {
+          setStatus('保存に失敗しました', 'err')
+        }
+      }
+
+      el('addRoute').addEventListener('click', () => addRoute())
+      el('save').addEventListener('click', save)
+
+      loadStops()
+      loadConfig()
+    </script>
+  </body>
+</html>

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>バス発車案内</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #141b31;
+        --panel-2: #1b2440;
+        --text: #f2f5ff;
+        --muted: #93a0c4;
+        --accent: #56b6ff;
+        --ok: #35d18c;
+        --late: #ff6b6b;
+        --early: #ffcf5c;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        cursor: none;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding: 1.4vh 2vw;
+        border-bottom: 1px solid #222c4d;
+      }
+      header h1 { font-size: 3.2vh; margin: 0; letter-spacing: 0.04em; }
+      header .clock { font-size: 4.2vh; font-variant-numeric: tabular-nums; font-weight: 700; }
+      main {
+        flex: 1;
+        display: grid;
+        gap: 1.4vh 1.4vw;
+        padding: 1.6vh 2vw;
+        grid-auto-rows: 1fr;
+        min-height: 0;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid #263156;
+        border-radius: 1.4vh;
+        padding: 1.8vh 1.6vw;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .card h2 { margin: 0 0 1.4vh; font-size: 3vh; }
+      .card h2 .arrow { color: var(--accent); margin: 0 0.4vw; }
+      .departures { display: flex; flex-direction: column; gap: 1vh; overflow: hidden; }
+      .dep {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 1.2vw;
+        background: var(--panel-2);
+        border-radius: 1vh;
+        padding: 1.2vh 1.4vw;
+      }
+      .dep .time { font-size: 4.4vh; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+      .dep .mid { display: flex; flex-direction: column; gap: 0.5vh; min-width: 0; }
+      .dep .line { font-size: 2.4vh; font-weight: 800; color: var(--accent); letter-spacing: 0.02em; }
+      .dep .eta { font-size: 2.6vh; font-weight: 700; }
+      .badges { display: flex; gap: 0.6vw; flex-wrap: wrap; }
+      .badge {
+        font-size: 1.9vh;
+        font-weight: 700;
+        padding: 0.3vh 0.9vw;
+        border-radius: 0.7vh;
+        white-space: nowrap;
+      }
+      .badge.ontime { background: rgba(53, 209, 140, 0.16); color: var(--ok); }
+      .badge.late { background: rgba(255, 107, 107, 0.16); color: var(--late); }
+      .badge.early { background: rgba(255, 207, 92, 0.16); color: var(--early); }
+      .badge.status { background: rgba(86, 182, 255, 0.16); color: var(--accent); }
+      .empty { color: var(--muted); font-size: 2.6vh; margin-top: 1vh; }
+      footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1vh 2vw;
+        border-top: 1px solid #222c4d;
+        color: var(--muted);
+        font-size: 2vh;
+      }
+      #banner {
+        display: none;
+        background: rgba(255, 107, 107, 0.18);
+        color: var(--late);
+        text-align: center;
+        padding: 0.8vh;
+        font-size: 2vh;
+        font-weight: 700;
+      }
+      #banner.show { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="banner">接続エラー — 最終取得データを表示中</div>
+    <header>
+      <h1>バス発車案内</h1>
+      <div class="clock" id="clock">--:--</div>
+    </header>
+    <main id="board"></main>
+    <footer>
+      <span id="updated">更新: --:--:--</span>
+      <span id="next">次回更新まで --s</span>
+    </footer>
+
+    <script>
+      const fmtTime = new Intl.DateTimeFormat('ja-JP', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Tokyo',
+      })
+      const fmtFull = new Intl.DateTimeFormat('ja-JP', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Tokyo',
+      })
+
+      const STATUS_LABEL = {
+        INCOMING_AT: 'まもなく到着',
+        STOPPED_AT: '停車中',
+        IN_TRANSIT_TO: '走行中',
+      }
+
+      let refreshSeconds = 10
+      let countdown = refreshSeconds
+      let timer = null
+
+      const el = (id) => document.getElementById(id)
+
+      // Live countdown from an absolute departure timestamp (ms), recomputed each second.
+      function etaText(basisMs) {
+        if (!basisMs) return ''
+        const sec = Math.round((basisMs - Date.now()) / 1000)
+        if (sec <= 0) return 'まもなく発車'
+        if (sec >= 60) {
+          const m = Math.floor(sec / 60)
+          const s = sec % 60
+          return 'あと ' + m + '分' + String(s).padStart(2, '0') + '秒'
+        }
+        return 'あと ' + sec + '秒'
+      }
+
+      function delayBadge(delaySec) {
+        const min = Math.round(delaySec / 60)
+        if (min >= 1) return '<span class="badge late">' + min + '分遅れ</span>'
+        if (min <= -1) return '<span class="badge early">' + Math.abs(min) + '分早発</span>'
+        return '<span class="badge ontime">定時</span>'
+      }
+
+      function renderDeparture(d) {
+        const basis = d.timeMs || d.scheduledMs || 0
+        const timeStr = basis ? fmtTime.format(new Date(basis)) : '--:--'
+        const status = STATUS_LABEL[d.status]
+        const statusBadge = status ? '<span class="badge status">' + status + '</span>' : ''
+        const line = d.routeName ? '<div class="line">' + escapeHtml(d.routeName) + '</div>' : ''
+        return (
+          '<div class="dep">' +
+          '<div class="time">' + timeStr + '</div>' +
+          '<div class="mid">' +
+          line +
+          '<div class="eta" data-basis="' + basis + '">' + etaText(basis) + '</div>' +
+          '<div class="badges">' + delayBadge(d.delaySec) + statusBadge + '</div>' +
+          '</div>' +
+          '</div>'
+        )
+      }
+
+      function renderCard(route) {
+        // Title is the "出発 → 目的地" pair (or an explicit label override).
+        const title = route.label
+          ? escapeHtml(route.label)
+          : escapeHtml(route.from) + ' <span class="arrow">→</span> ' + escapeHtml(route.to)
+        let body
+        if (route.error) {
+          body = '<div class="empty">運行情報なし</div>'
+        } else if (!route.departures || route.departures.length === 0) {
+          body = '<div class="empty">まもなくの発車はありません</div>'
+        } else {
+          body = '<div class="departures">' + route.departures.map(renderDeparture).join('') + '</div>'
+        }
+        return '<section class="card"><h2>' + title + '</h2>' + body + '</section>'
+      }
+
+      function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, (c) =>
+          ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]),
+        )
+      }
+
+      function layout(count) {
+        const board = el('board')
+        const cols = count <= 1 ? 1 : count === 2 ? 2 : count <= 4 ? 2 : 3
+        board.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)'
+      }
+
+      function render(data) {
+        const routes = data.routes || []
+        if (routes.length === 0) {
+          el('board').style.gridTemplateColumns = '1fr'
+          el('board').innerHTML =
+            '<section class="card"><div class="empty">ダッシュボードで路線を設定してください（/dashboard）</div></section>'
+        } else {
+          layout(routes.length)
+          el('board').innerHTML = routes.map(renderCard).join('')
+        }
+        el('updated').textContent = '更新: ' + fmtFull.format(new Date(data.lastUpdated || Date.now()))
+      }
+
+      async function poll() {
+        try {
+          const res = await fetch('/api/departures', { cache: 'no-store' })
+          if (!res.ok) throw new Error('HTTP ' + res.status)
+          const data = await res.json()
+          if (typeof data.refreshSeconds === 'number' && data.refreshSeconds !== refreshSeconds) {
+            refreshSeconds = data.refreshSeconds
+          }
+          render(data)
+          el('banner').classList.remove('show')
+        } catch (e) {
+          // Keep the last good render; just flag the connection problem.
+          el('banner').classList.add('show')
+        } finally {
+          countdown = refreshSeconds
+        }
+      }
+
+      function updateEtas() {
+        document.querySelectorAll('.eta[data-basis]').forEach((node) => {
+          const basis = Number(node.dataset.basis)
+          if (basis) node.textContent = etaText(basis)
+        })
+      }
+
+      function tick() {
+        el('clock').textContent = fmtTime.format(new Date())
+        updateEtas()
+        countdown -= 1
+        el('next').textContent = '次回更新まで ' + Math.max(0, countdown) + 's'
+        if (countdown <= 0) poll()
+      }
+
+      poll()
+      timer = setInterval(tick, 1000)
+    </script>
+  </body>
+</html>
