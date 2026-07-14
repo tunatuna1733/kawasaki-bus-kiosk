@@ -36,7 +36,7 @@ type UpstreamTrip = {
     routeData?: { routeID: string; routeName?: string; routeNameLong?: string }
     stops: UpstreamStop[]
   }
-  vehicle?: { currentStatus?: string }
+  vehicle?: { currentStatus?: string; currentStopSequence?: number }
 }
 
 type DetailResponse = {
@@ -54,6 +54,7 @@ export type Departure = {
   delaySec: number // positive = late
   status: string // INCOMING_AT | STOPPED_AT | IN_TRANSIT_TO
   etaSec: number | null // seconds from now until departure (kiosk recomputes live per second)
+  remainingStops: number | null // stops the vehicle still has to pass before reaching the boarding stop
 }
 
 export type RouteDepartures = {
@@ -99,6 +100,12 @@ const normalizeTrip = (t: UpstreamTrip, from: string): Departure | null => {
   const scheduledMs = toEpochMs(dep.scheduledTime)
   if (timeMs === null && scheduledMs === null) return null
   const basis = timeMs ?? scheduledMs
+  // Mirrors upstream's own getSummary(): stops remaining = boarding stop's sequence minus the
+  // vehicle's current sequence. currentStopSequence is per-vehicle (real-time), unlike sequence
+  // numbers on `stops`, which are the same static list for every trip on this route — using the
+  // latter alone would (and did) give every bus on a card the same number.
+  const currentStopSequence = t.vehicle?.currentStopSequence ?? stops[0].sequence
+  const remainingStops = dep.sequence - currentStopSequence
   return {
     routeName: t.trip.routeData?.routeName ?? t.trip.routeData?.routeNameLong ?? '',
     timeMs,
@@ -106,6 +113,7 @@ const normalizeTrip = (t: UpstreamTrip, from: string): Departure | null => {
     delaySec: typeof dep.delay === 'number' ? dep.delay : 0,
     status: t.vehicle?.currentStatus ?? '',
     etaSec: basis === null ? null : Math.round((basis - Date.now()) / 1000),
+    remainingStops: remainingStops >= 0 ? remainingStops : null,
   }
 }
 
