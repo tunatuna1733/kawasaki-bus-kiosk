@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # --- Install dependencies (cached separately from source) -------------------------------
-FROM oven/bun:1-alpine AS deps
+FROM oven/bun:1-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # --- Runtime ---------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS runtime
+# Use a slimmer Debian-based bun image for the runtime to reduce vulnerable Alpine packages
+FROM oven/bun:1-buster-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
-    PORT=3000 \
+    PORT=25001 \
     CONFIG_PATH=/data/config.json
 
 # Dependencies and application source.
@@ -24,6 +25,6 @@ RUN mkdir -p /data && chown -R bun:bun /data /app
 VOLUME ["/data"]
 
 USER bun
-EXPOSE 3000
+EXPOSE 25001
 
 CMD ["bun", "run", "src/index.ts"]
