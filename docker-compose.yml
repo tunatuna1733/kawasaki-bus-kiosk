@@ -15,6 +15,10 @@ services:
     volumes:
       # Persist the dashboard-written config across restarts and image rebuilds.
       - kiosk-config:/data
+    # Lets the container reach a backend running on the host as host.docker.internal.
+    # Built in on Docker Desktop (Win/Mac); this mapping is what makes it work on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   kiosk-config:
